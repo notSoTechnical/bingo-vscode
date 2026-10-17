@@ -7,18 +7,40 @@ export const RAPIDAPI_HOST = 'bingo-verified-code-answers-api.p.rapidapi.com';
 export const LISTING_URL =
   'https://rapidapi.com/demorgansucks/api/bingo-verified-code-answers-api/playground';
 
+/** Languages the Bingo API supports (canonical ids). */
+export type BingoLanguage = 'python' | 'javascript' | 'typescript' | 'java' | 'cpp';
+
 export interface TestReport {
   ran: number;
   passed: number;
   attempts: number;
 }
 
+/** Pass counts for one test suite (the user's provided tests, or the spec tests). */
+export interface SuiteReport {
+  ran: number;
+  passed: number;
+}
+
+/**
+ * Per-suite breakdown of a dual-tested answer.
+ * `provided` is null when the user supplied no tests — then the generated
+ * spec tests are the single suite.
+ */
+export interface TestBreakdown {
+  provided: SuiteReport | null;
+  spec: SuiteReport;
+}
+
 export interface BingoResponse {
   status: 'verified' | 'not_verified';
   code: string | null;
+  language?: string;
   test_report?: TestReport;
+  test_breakdown?: TestBreakdown;
   tests_used?: string;
   tests_source?: string;
+  spec_tests_used?: string | null;
 }
 
 /** Error carrying the HTTP status code so the UI can explain it in human terms. */
@@ -33,7 +55,7 @@ export class BingoApiError extends Error {
 }
 
 /**
- * Ask Bingo for a verified Python code answer.
+ * Ask Bingo for a verified code answer in the given language.
  *
  * The request goes through the RapidAPI proxy using the END USER's own key —
  * the key is only ever placed in the X-RapidAPI-Key header of this request.
@@ -42,11 +64,12 @@ export class BingoApiError extends Error {
 export function requestVerifiedAnswer(
   apiKey: string,
   problem: string,
+  language: BingoLanguage,
   tests: string | undefined,
   timeoutMs = 180_000,
 ): Promise<BingoResponse> {
   return new Promise<BingoResponse>((resolve, reject) => {
-    const payload: Record<string, string> = { problem, language: 'python' };
+    const payload: Record<string, string> = { problem, language };
     if (tests && tests.trim().length > 0) {
       payload.tests = tests;
     }

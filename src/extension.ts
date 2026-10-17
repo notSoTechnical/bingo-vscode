@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { BingoApiError, LISTING_URL, requestVerifiedAnswer } from './api';
+import { BingoApiError, BingoLanguage, LISTING_URL, requestVerifiedAnswer } from './api';
 
 const SECRET_KEY = 'bingo.rapidApiKey';
 
@@ -96,6 +96,63 @@ async function ensureKey(context: vscode.ExtensionContext): Promise<string | und
   return getStoredKey(context);
 }
 
+/** Languages the Bingo API supports, in picker order. Values are canonical API ids. */
+const LANGUAGES = [
+  { label: 'Python', value: 'python' },
+  { label: 'JavaScript', value: 'javascript' },
+  { label: 'TypeScript', value: 'typescript' },
+  { label: 'Java', value: 'java' },
+  { label: 'C++', value: 'cpp' },
+] as const satisfies ReadonlyArray<{ label: string; value: BingoLanguage }>;
+
+/** Map a VS Code editor languageId to a Bingo language (fallback: python). */
+function languageFromEditor(editor: vscode.TextEditor | undefined): BingoLanguage {
+  switch (editor?.document.languageId) {
+    case 'javascript':
+    case 'javascriptreact':
+      return 'javascript';
+    case 'typescript':
+    case 'typescriptreact':
+      return 'typescript';
+    case 'java':
+      return 'java';
+    case 'c':
+    case 'cpp':
+      return 'cpp';
+    case 'python':
+    default:
+      return 'python';
+  }
+}
+
+/** How pasted tests should look, per language — shown in the tests input box. */
+const TEST_PROMPTS: Record<BingoLanguage, { prompt: string; placeHolder: string }> = {
+  python: {
+    prompt: 'Paste Python assert lines, e.g. assert dedupe([1,1,2]) == [1,2]',
+    placeHolder: 'assert your_function(...) == ...',
+  },
+  javascript: {
+    prompt:
+      'Paste JavaScript assert lines (node:assert is available), e.g. assert.deepStrictEqual(dedupe([1,1,2]), [1,2])',
+    placeHolder: 'assert.deepStrictEqual(yourFunction(...), ...)',
+  },
+  typescript: {
+    prompt:
+      'Paste TypeScript assert lines (node:assert is available), e.g. assert.deepStrictEqual(dedupe([1,1,2]), [1,2])',
+    placeHolder: 'assert.deepStrictEqual(yourFunction(...), ...)',
+  },
+  java: {
+    prompt:
+      'Paste Java test statements for a public class Solution — signal failure with throw new AssertionError("...")',
+    placeHolder:
+      'if (!Solution.dedupe(List.of(1,1,2)).equals(List.of(1,2))) throw new AssertionError("dedupe");',
+  },
+  cpp: {
+    prompt: 'Paste C++ assert statements, e.g. assert(dedupe({1,1,2}) == std::vector<int>({1,2}));',
+    placeHolder: 'assert(yourFunction(...) == ...);',
+  },
+};
+
 async function getVerifiedAnswer(context: vscode.ExtensionContext): Promise<void> {
   const apiKey = await ensureKey(context);
   if (!apiKey) {
@@ -109,7 +166,7 @@ async function getVerifiedAnswer(context: vscode.ExtensionContext): Promise<void
     : '';
   const problem = await vscode.window.showInputBox({
     title: 'Bingo: Get Verified Answer',
-    prompt: 'Describe the Python function you need',
+    prompt: 'Describe the function you need',
     placeHolder: 'e.g. Write a function dedupe(items) that removes duplicates but keeps order',
     value: selection,
     ignoreFocusOut: true,
@@ -118,7 +175,34 @@ async function getVerifiedAnswer(context: vscode.ExtensionContext): Promise<void
     return;
   }
 
-  // 2. Optional tests.
+  // 2. Language: preselect from the active editor's language, fallback Python.
+  //    (A created QuickPick is used because showQuickPick's options in the 1.85
+  //    API cannot pre-select an item; QuickPick.activeItems can.)
+  const languageItems = LANGUAGES.map((l) => ({ label: l.label, value: l.value }));
+  const language = await new Promise<BingoLanguage | undefined>((resolve) => {
+    const picker = vscode.window.createQuickPick<(typeof languageItems)[number]>();
+    picker.title = 'Bingo: Language';
+    picker.placeholder = 'Which language should the answer be in?';
+    picker.items = languageItems;
+    picker.activeItems = languageItems.filter(
+      (i) => i.value === languageFromEditor(editor),
+    );
+    picker.onDidAccept(() => {
+      const picked = picker.selectedItems[0]?.value;
+      picker.hide();
+      resolve(picked);
+    });
+    picker.onDidHide(() => {
+      picker.dispose();
+      resolve(undefined);
+    });
+    picker.show();
+  });
+  if (!language) {
+    return;
+  }
+
+  // 3. Optional tests.
   const testsChoice = await vscode.window.showQuickPick(
     [
       { label: 'Let Bingo generate the tests', value: 'generated' },
@@ -133,8 +217,8 @@ async function getVerifiedAnswer(context: vscode.ExtensionContext): Promise<void
   if (testsChoice.value === 'paste') {
     const pasted = await vscode.window.showInputBox({
       title: 'Bingo: Your tests',
-      prompt: 'Paste Python assert lines, e.g. assert dedupe([1,1,2]) == [1,2]',
-      placeHolder: 'assert your_function(...) == ...',
+      prompt: TEST_PROMPTS[language].prompt,
+      placeHolder: TEST_PROMPTS[language].placeHolder,
       ignoreFocusOut: true,
     });
     if (pasted === undefined) {
@@ -143,7 +227,7 @@ async function getVerifiedAnswer(context: vscode.ExtensionContext): Promise<void
     tests = pasted.trim().length > 0 ? pasted : undefined;
   }
 
-  // 3. Call the API. Generation + sandbox + fix loop takes a while, and the
+  // 4. Call the API. Generation + sandbox + fix loop takes a while, and the
   //    free-tier backend may need to wake up first — hence the long timeout.
   let result;
   try {
@@ -153,17 +237,19 @@ async function getVerifiedAnswer(context: vscode.ExtensionContext): Promise<void
         title: 'Bingo is generating and testing your answer… (first call can take a minute)',
         cancellable: false,
       },
-      () => requestVerifiedAnswer(apiKey, problem.trim(), tests),
+      () => requestVerifiedAnswer(apiKey, problem.trim(), language, tests),
     );
   } catch (err) {
     await showError(context, err);
     return;
   }
 
-  // 4. Report, honestly.
+  // 5. Report, honestly.
   const report = result.test_report;
+  const breakdown = result.test_breakdown;
   output.appendLine('—'.repeat(60));
   output.appendLine(`Problem: ${problem.trim()}`);
+  output.appendLine(`Language: ${result.language ?? language}`);
   if (report) {
     output.appendLine(
       `Result: ${result.status} — tests: ${report.passed}/${report.ran} passed, attempts: ${report.attempts}`,
@@ -171,24 +257,59 @@ async function getVerifiedAnswer(context: vscode.ExtensionContext): Promise<void
   } else {
     output.appendLine(`Result: ${result.status}`);
   }
+  if (breakdown) {
+    const providedPart = breakdown.provided
+      ? `provided: ${breakdown.provided.passed}/${breakdown.provided.ran} passed`
+      : 'provided: (none — spec tests only)';
+    output.appendLine(
+      `Test breakdown — ${providedPart} · spec: ${breakdown.spec.passed}/${breakdown.spec.ran} passed`,
+    );
+  }
   if (result.tests_used) {
     output.appendLine(`Tests used (${result.tests_source ?? 'provided'}):`);
     output.appendLine(result.tests_used);
   }
+  if (result.spec_tests_used) {
+    output.appendLine('Spec tests used (generated from your problem statement):');
+    output.appendLine(result.spec_tests_used);
+  }
 
   if (result.status === 'verified' && result.code) {
     const doc = await vscode.workspace.openTextDocument({
-      language: 'python',
+      language,
       content: result.code,
     });
     await vscode.window.showTextDocument(doc);
-    const summary = report
-      ? `Bingo ✓ verified — tests: ${report.passed}/${report.ran} passed, attempts: ${report.attempts}. See the "Bingo" output channel for the tests used.`
-      : 'Bingo ✓ verified — the answer passed its tests.';
-    output.appendLine('Verified code was opened in a new Python editor. Nothing was inserted into your files automatically.');
+    let summary: string;
+    if (report) {
+      const breakdownSegment =
+        breakdown?.provided != null
+          ? ` (provided: ${breakdown.provided.passed}/${breakdown.provided.ran} · spec: ${breakdown.spec.passed}/${breakdown.spec.ran})`
+          : '';
+      summary = `Bingo ✓ verified — tests: ${report.passed}/${report.ran} passed${breakdownSegment}, attempts: ${report.attempts}. See the "Bingo" output channel for the tests used.`;
+    } else {
+      summary = 'Bingo ✓ verified — the answer passed its tests.';
+    }
+    output.appendLine(
+      `Verified code was opened in a new ${language} editor. Nothing was inserted into your files automatically.`,
+    );
     void vscode.window.showInformationMessage(summary);
   } else {
-    // Never insert unverified code. Say so plainly.
+    // Never insert unverified code. Say so plainly — and name the failing suite.
+    if (breakdown) {
+      const failedSuites: string[] = [];
+      if (breakdown.provided && breakdown.provided.passed < breakdown.provided.ran) {
+        failedSuites.push(
+          `provided tests (${breakdown.provided.passed}/${breakdown.provided.ran} passed)`,
+        );
+      }
+      if (breakdown.spec.passed < breakdown.spec.ran) {
+        failedSuites.push(`spec tests (${breakdown.spec.passed}/${breakdown.spec.ran} passed)`);
+      }
+      if (failedSuites.length > 0) {
+        output.appendLine(`Failed suite(s): ${failedSuites.join('; ')}`);
+      }
+    }
     output.appendLine('No code was delivered. Bingo only ships code that passes its tests.');
     void vscode.window.showWarningMessage(
       'Bingo could not verify a solution after 3 attempts — nothing was inserted. Try rephrasing the problem or adding your own tests. Details are in the "Bingo" output channel.',
