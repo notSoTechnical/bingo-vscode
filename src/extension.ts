@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { BingoApiError, BingoLanguage, LISTING_URL, requestVerifiedAnswer } from './api';
+import { BingoApiError, BingoEngine, BingoLanguage, LISTING_URL, requestVerifiedAnswer } from './api';
 
 const SECRET_KEY = 'bingo.rapidApiKey';
 
@@ -105,6 +105,12 @@ const LANGUAGES = [
   { label: 'C++', value: 'cpp' },
 ] as const satisfies ReadonlyArray<{ label: string; value: BingoLanguage }>;
 
+/** Engines that can write the code, in picker order. Verification is identical. */
+const ENGINES = [
+  { label: 'DeepSeek', description: 'Default — fast and economical', value: 'deepseek' },
+  { label: 'Gemini', description: 'Google Gemini (gemini-3.8-flash)', value: 'gemini' },
+] as const satisfies ReadonlyArray<{ label: string; description: string; value: BingoEngine }>;
+
 /** Map a VS Code editor languageId to a Bingo language (fallback: python). */
 function languageFromEditor(editor: vscode.TextEditor | undefined): BingoLanguage {
   switch (editor?.document.languageId) {
@@ -202,6 +208,35 @@ async function getVerifiedAnswer(context: vscode.ExtensionContext): Promise<void
     return;
   }
 
+  // 2b. Engine: which model writes the code (DeepSeek preselected — it is
+  //     the server default). The verification process does not change.
+  const engineItems = ENGINES.map((e) => ({
+    label: e.label,
+    description: e.description,
+    value: e.value,
+  }));
+  const engine = await new Promise<BingoEngine | undefined>((resolve) => {
+    const picker = vscode.window.createQuickPick<(typeof engineItems)[number]>();
+    picker.title = 'Bingo: Engine';
+    picker.placeholder =
+      'Which AI engine should write the code? (The testing is the same either way.)';
+    picker.items = engineItems;
+    picker.activeItems = engineItems.filter((i) => i.value === 'deepseek');
+    picker.onDidAccept(() => {
+      const picked = picker.selectedItems[0]?.value;
+      picker.hide();
+      resolve(picked);
+    });
+    picker.onDidHide(() => {
+      picker.dispose();
+      resolve(undefined);
+    });
+    picker.show();
+  });
+  if (!engine) {
+    return;
+  }
+
   // 3. Optional tests.
   const testsChoice = await vscode.window.showQuickPick(
     [
@@ -237,7 +272,7 @@ async function getVerifiedAnswer(context: vscode.ExtensionContext): Promise<void
         title: 'Bingo is generating and testing your answer… (first call can take a minute)',
         cancellable: false,
       },
-      () => requestVerifiedAnswer(apiKey, problem.trim(), language, tests),
+      () => requestVerifiedAnswer(apiKey, problem.trim(), language, tests, engine),
     );
   } catch (err) {
     await showError(context, err);
@@ -250,6 +285,9 @@ async function getVerifiedAnswer(context: vscode.ExtensionContext): Promise<void
   output.appendLine('—'.repeat(60));
   output.appendLine(`Problem: ${problem.trim()}`);
   output.appendLine(`Language: ${result.language ?? language}`);
+  output.appendLine(
+    `Engine: ${result.engine ?? engine}${result.model ? ` (${result.model})` : ''}`,
+  );
   if (report) {
     output.appendLine(
       `Result: ${result.status} — tests: ${report.passed}/${report.ran} passed, attempts: ${report.attempts}`,
@@ -286,7 +324,7 @@ async function getVerifiedAnswer(context: vscode.ExtensionContext): Promise<void
         breakdown?.provided != null
           ? ` (provided: ${breakdown.provided.passed}/${breakdown.provided.ran} · spec: ${breakdown.spec.passed}/${breakdown.spec.ran})`
           : '';
-      summary = `Bingo ✓ verified — tests: ${report.passed}/${report.ran} passed${breakdownSegment}, attempts: ${report.attempts}. See the "Bingo" output channel for the tests used.`;
+      summary = `Bingo ✓ verified — tests: ${report.passed}/${report.ran} passed${breakdownSegment}, attempts: ${report.attempts}. Engine: ${result.engine ?? engine}. See the "Bingo" output channel for the tests used.`;
     } else {
       summary = 'Bingo ✓ verified — the answer passed its tests.';
     }

@@ -2,6 +2,11 @@
 
 All notable changes to the Bingo — Verified Code Answers extension.
 
+## [0.3.0] — Pick your engine: DeepSeek or Gemini
+
+- **Engine picker** — the **Bingo: Get Verified Answer** flow now asks which AI engine should write the code: **DeepSeek** (default) or **Google Gemini** (gemini-3.8-flash). No typing — it's a picker, right after the language picker
+- **Same bar, either engine** — the verification process (sandbox runs + dual test check) is identical whichever engine you pick; the info message and the **Bingo** output channel now report the engine and the exact model that wrote the answer
+
 ## [0.2.0] — Five languages + dual-tested answers
 
 - **Five languages** — answers now in Python, JavaScript, TypeScript, Java, and C++. The **Bingo: Get Verified Answer** flow adds a language picker, pre-selected from your current editor's language

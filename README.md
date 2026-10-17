@@ -8,7 +8,7 @@ Most AI code *looks* right and runs wrong — hallucinated packages, invented AP
 
 1. You describe a coding problem (and your tests, if you have them)
 2. You pick the language — Python, JavaScript, TypeScript, Java, or C++ (pre-selected from your current editor)
-3. Bingo generates a solution with a fast, low-cost model (DeepSeek)
+3. You pick the engine — DeepSeek (default) or Google Gemini; Bingo generates the solution with it
 4. The code runs in a sandbox against the tests
 5. If it fails, Bingo fixes and re-runs — up to 3 attempts
 6. You get the code **with its test report**: which tests ran, which passed, how many attempts it took
@@ -45,6 +45,7 @@ Run **Bingo: Get Verified Answer** from the Command Palette (`Ctrl/Cmd+Shift+P`)
 
 - If you have text selected, it pre-fills the problem box with your selection
 - Pick the language (it starts on the language of your current editor)
+- Pick the engine — DeepSeek or Google Gemini (the testing is the same either way)
 - Optionally paste your own tests — or let Bingo generate the tests and show them to you in the report
 - Generation + testing takes a little while; the first call after a quiet period can take up to a minute while the backend wakes up
 
@@ -71,6 +72,7 @@ One request = one problem. Bingo may generate and test up to 3 attempts internal
 ## Good to know
 
 - **Five languages**: Python, JavaScript, TypeScript, Java, C++
+- **Two engines**: DeepSeek (default) or Google Gemini — your pick per answer; the report names the engine and model used
 - Errors are explained in plain language: `401/403` means a key problem, `429` means your monthly answers are used up
 - Try the API first in your browser, or with the [example code on GitHub](https://github.com/notSoTechnical/bingo-examples)
 

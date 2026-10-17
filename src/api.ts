@@ -10,6 +10,9 @@ export const LISTING_URL =
 /** Languages the Bingo API supports (canonical ids). */
 export type BingoLanguage = 'python' | 'javascript' | 'typescript' | 'java' | 'cpp';
 
+/** Model engines that can write the code. Verification is identical either way. */
+export type BingoEngine = 'deepseek' | 'gemini';
+
 export interface TestReport {
   ran: number;
   passed: number;
@@ -36,6 +39,8 @@ export interface BingoResponse {
   status: 'verified' | 'not_verified';
   code: string | null;
   language?: string;
+  engine?: string;
+  model?: string;
   test_report?: TestReport;
   test_breakdown?: TestBreakdown;
   tests_used?: string;
@@ -55,7 +60,8 @@ export class BingoApiError extends Error {
 }
 
 /**
- * Ask Bingo for a verified code answer in the given language.
+ * Ask Bingo for a verified code answer in the given language,
+ * written by the chosen engine (deepseek or gemini).
  *
  * The request goes through the RapidAPI proxy using the END USER's own key —
  * the key is only ever placed in the X-RapidAPI-Key header of this request.
@@ -66,10 +72,11 @@ export function requestVerifiedAnswer(
   problem: string,
   language: BingoLanguage,
   tests: string | undefined,
+  engine: BingoEngine,
   timeoutMs = 180_000,
 ): Promise<BingoResponse> {
   return new Promise<BingoResponse>((resolve, reject) => {
-    const payload: Record<string, string> = { problem, language };
+    const payload: Record<string, string> = { problem, language, engine };
     if (tests && tests.trim().length > 0) {
       payload.tests = tests;
     }
