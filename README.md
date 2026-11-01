@@ -58,6 +58,52 @@ When an answer is verified, the code opens in a new editor in the right language
 - **Java** — your code is a single `public class Solution` (no `main` method); tests are statements that signal failure with `throw new AssertionError("...")`, e.g. `if (!Solution.dedupe(List.of(1,1,2)).equals(List.of(1,2))) throw new AssertionError("dedupe");`
 - **C++** — `assert(...)` statements, e.g. `assert(dedupe({1,1,2}) == std::vector<int>({1,2}));` — your code is functions only (no `main`; Bingo supplies the test harness)
 
+## Dummy — a safety gate for robot controllers
+
+New in 0.4.0: Bingo now crash-tests **robot controller code** the same way it tests answers — before it ships.
+
+If you write robot navigation/control code in Python, open the file and run **Bingo: Verify Robot Controller (Dummy)** from the Command Palette. Your controller is sent to the Dummy gate, which runs it in simulation through six deployment scenarios:
+
+| # | Scenario | What it checks |
+|---|---|---|
+| S1 | Obstacle stop | A box appears on the path — the robot must not hit it |
+| S2 | Pedestrian crossing | A person walks across the path — no collision |
+| S3 | Speed limit | The robot's speed must never exceed 0.5 m/s |
+| S4 | Emergency stop | When the e-stop fires, the robot must halt fast and stay halted |
+| S5 | Blocked goal | The goal is barricaded — waiting is fine, ramming through is not |
+| S6 | Clear-world sanity | With nothing in the way, the robot must actually reach the goal |
+
+The verdict is a gate, not a grade: **GREEN — cleared to deploy (6/6)**, or **RED — deploy blocked**, with the failing scenarios named. The full per-scenario report lands in the **Bingo** output channel.
+
+### The contract
+
+Your file defines one function. Each step, the simulator tells it where the robot is, where the goal is, how close the nearest obstacle is, and whether the e-stop has fired — and your function answers with a velocity:
+
+```python
+import math
+
+SPEED_LIMIT = 0.5  # m/s — the gate fails any run that exceeds it
+STOP_GAP = 0.45    # metres — stop when an obstacle gets this close
+
+def step(obs):
+    if obs.estop:
+        return (0.0, 0.0)
+    if obs.gap < STOP_GAP:
+        return (0.0, 0.0)  # wait — never ram
+    dx = obs.goal_x - obs.x
+    dy = obs.goal_y - obs.y
+    d = math.hypot(dx, dy)
+    if d <= 0.3:
+        return (0.0, 0.0)
+    return (SPEED_LIMIT * dx / d, SPEED_LIMIT * dy / d)
+```
+
+`obs` exposes `x`, `y`, `goal_x`, `goal_y`, `gap` (surface distance to the nearest obstacle, in metres), `estop` (bool), and `t` (seconds). If your code crashes, loops forever, or doesn't define `step(obs)`, the gate says so plainly and returns RED with the reason — never a silent pass.
+
+No RapidAPI key is needed for the gate: the endpoint is a **free public beta** for now.
+
+> **Honesty note:** Dummy is a **pre-deployment simulation gate, not a safety certification**. GREEN means the controller passed these six simulated scenarios. It does not guarantee real-world safety and does not replace testing on real hardware.
+
 ## Plans
 
 | Plan | Price | Verified answers / month |
@@ -73,6 +119,7 @@ One request = one problem. Bingo may generate and test up to 3 attempts internal
 
 - **Five languages**: Python, JavaScript, TypeScript, Java, C++
 - **Two engines**: DeepSeek (default) or Google Gemini — your pick per answer; the report names the engine and model used
+- **Dummy robot gate**: crash-tests Python robot controllers (`step(obs)`) in six simulated deployment scenarios — free public beta, no key needed
 - Errors are explained in plain language: `401/403` means a key problem, `429` means your monthly answers are used up
 - Try the API first in your browser, or with the [example code on GitHub](https://github.com/notSoTechnical/bingo-examples)
 

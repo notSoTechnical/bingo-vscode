@@ -1,5 +1,12 @@
 import * as vscode from 'vscode';
-import { BingoApiError, BingoEngine, BingoLanguage, LISTING_URL, requestVerifiedAnswer } from './api';
+import {
+  BingoApiError,
+  BingoEngine,
+  BingoLanguage,
+  LISTING_URL,
+  requestRobotVerification,
+  requestVerifiedAnswer,
+} from './api';
 
 const SECRET_KEY = 'bingo.rapidApiKey';
 
@@ -13,6 +20,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('bingo.setApiKey', () => setApiKey(context, true)),
     vscode.commands.registerCommand('bingo.getVerifiedAnswer', () =>
       getVerifiedAnswer(context),
+    ),
+    vscode.commands.registerCommand('bingo.verifyRobotController', () =>
+      verifyRobotController(),
     ),
   );
 }
@@ -353,6 +363,101 @@ async function getVerifiedAnswer(context: vscode.ExtensionContext): Promise<void
       'Bingo could not verify a solution after 3 attempts — nothing was inserted. Try rephrasing the problem or adding your own tests. Details are in the "Bingo" output channel.',
     );
   }
+}
+
+/**
+ * Dummy robot gate: crash-test the active editor's robot controller in
+ * simulation before it ever reaches real hardware. The file must define
+ * `step(obs) -> (vx, vy)` in Python. No RapidAPI key is needed — the gate
+ * endpoint is a free public beta for now.
+ */
+async function verifyRobotController(): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    void vscode.window.showErrorMessage(
+      'Bingo: no file is open. Open the Python file that defines step(obs) — your robot controller — then run "Bingo: Verify Robot Controller (Dummy)" again.',
+    );
+    return;
+  }
+  const code = editor.document.getText();
+  if (code.trim().length === 0) {
+    void vscode.window.showErrorMessage(
+      'Bingo: the open file is empty. The Dummy gate needs the Python code that defines step(obs) — open your robot controller file and try again.',
+    );
+    return;
+  }
+
+  // The gate runs six simulated scenarios server-side, and the free-tier
+  // backend may need to wake up first — hence the long timeout.
+  let result;
+  try {
+    result = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: 'Dummy is crash-testing your robot controller in simulation… (first call can take a minute)',
+        cancellable: false,
+      },
+      () => requestRobotVerification(code),
+    );
+  } catch (err) {
+    showRobotError(err);
+    return;
+  }
+
+  // Full report in the Bingo output channel.
+  output.appendLine('—'.repeat(60));
+  output.appendLine(`Dummy robot gate — file: ${editor.document.fileName}`);
+  output.appendLine(
+    `Verdict: ${result.gate} — deploy ${result.deploy} (${result.passed}/${result.total} scenarios passed)`,
+  );
+  if (result.error) {
+    output.appendLine(`Gate error: ${result.error}`);
+  }
+  for (const r of result.results) {
+    output.appendLine(
+      `${r.scenario} ${r.title}: ${r.passed ? 'PASS' : 'FAIL'} — ${r.detail}`,
+    );
+  }
+  output.appendLine(
+    'Dummy is a pre-deployment simulation gate. GREEN means the controller passed these six simulated scenarios — it is not a safety certification, and it does not replace testing on real hardware.',
+  );
+  output.show(true);
+
+  // One honest summary notification.
+  if (result.gate === 'GREEN') {
+    void vscode.window.showInformationMessage(
+      `Dummy gate: GREEN — cleared to deploy (${result.passed}/${result.total}). Full report in the "Bingo" output channel.`,
+    );
+  } else if (result.error) {
+    void vscode.window.showErrorMessage(
+      `Dummy gate: RED — deploy blocked (${result.passed}/${result.total}). The gate could not run your controller: ${result.error} Full report in the "Bingo" output channel.`,
+    );
+  } else {
+    const failed = result.results
+      .filter((r) => !r.passed)
+      .map((r) => `${r.scenario} ${r.title}`)
+      .join('; ');
+    void vscode.window.showWarningMessage(
+      `Dummy gate: RED — deploy blocked (${result.passed}/${result.total}). Failed: ${failed}. Full report in the "Bingo" output channel.`,
+    );
+  }
+}
+
+/** Human errors for the Dummy gate — same tone as the answers flow. */
+function showRobotError(err: unknown): void {
+  output.appendLine('—'.repeat(60));
+  if (err instanceof BingoApiError) {
+    output.appendLine(`Dummy gate API error (HTTP ${err.statusCode}): ${err.message}`);
+    void vscode.window.showErrorMessage(
+      `Bingo: the Dummy gate API returned an error (HTTP ${err.statusCode}). Details are in the "Bingo" output channel.`,
+    );
+    return;
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  output.appendLine(`Dummy gate error: ${message}`);
+  void vscode.window.showErrorMessage(
+    `Bingo: something went wrong — ${message} See the "Bingo" output channel for details.`,
+  );
 }
 
 async function showError(context: vscode.ExtensionContext, err: unknown): Promise<void> {

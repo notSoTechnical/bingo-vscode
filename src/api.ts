@@ -7,6 +7,9 @@ export const RAPIDAPI_HOST = 'bingo-verified-code-answers-api.p.rapidapi.com';
 export const LISTING_URL =
   'https://rapidapi.com/demorgansucks/api/bingo-verified-code-answers-api/playground';
 
+/** The Bingo backend host — the Dummy robot gate is served from here directly. */
+export const BACKEND_HOST = 'bingo-2he1.onrender.com';
+
 /** Languages the Bingo API supports (canonical ids). */
 export type BingoLanguage = 'python' | 'javascript' | 'typescript' | 'java' | 'cpp';
 
@@ -46,6 +49,34 @@ export interface BingoResponse {
   tests_used?: string;
   tests_source?: string;
   spec_tests_used?: string | null;
+}
+
+/** One scenario result from the Dummy robot-safety gate. */
+export interface RobotScenarioResult {
+  scenario: string;
+  title: string;
+  passed: boolean;
+  collided: boolean;
+  reached_goal: boolean;
+  max_speed: number;
+  min_gap: number;
+  estop_stop_latency: number | null;
+  moved_after_estop: number;
+  detail: string;
+}
+
+/**
+ * The Dummy gate verdict for one robot controller.
+ * `verified` is true only when the gate is GREEN — every scenario passed.
+ */
+export interface RobotVerifyResponse {
+  verified: boolean;
+  gate: 'GREEN' | 'RED';
+  deploy: 'cleared' | 'blocked';
+  passed: number;
+  total: number;
+  results: RobotScenarioResult[];
+  error: string | null;
 }
 
 /** Error carrying the HTTP status code so the UI can explain it in human terms. */
@@ -107,6 +138,69 @@ export function requestVerifiedAnswer(
           }
           try {
             resolve(JSON.parse(text) as BingoResponse);
+          } catch {
+            reject(
+              new BingoApiError(status, 'Bingo returned a response that was not valid JSON.'),
+            );
+          }
+        });
+      },
+    );
+
+    req.on('timeout', () => {
+      req.destroy(
+        new Error(
+          'The request timed out. The Bingo backend can be slow to wake up — please try again.',
+        ),
+      );
+    });
+    req.on('error', (err) => reject(err));
+    req.write(body);
+    req.end();
+  });
+}
+
+/**
+ * Run the Dummy robot-safety gate over a robot controller's source code.
+ *
+ * The code must define `step(obs) -> (vx, vy)`. The backend runs it through
+ * six simulated deployment scenarios (obstacle stop, pedestrian crossing,
+ * speed limit, e-stop, blocked goal, clear-world sanity) and returns a
+ * GREEN/RED gate verdict: GREEN means every scenario passed.
+ *
+ * Unlike the answers API, this endpoint is a free public beta for now and
+ * is called directly on the Bingo backend — no RapidAPI key is involved.
+ */
+export function requestRobotVerification(
+  code: string,
+  timeoutMs = 180_000,
+): Promise<RobotVerifyResponse> {
+  return new Promise<RobotVerifyResponse>((resolve, reject) => {
+    const body = JSON.stringify({ code });
+
+    const req = https.request(
+      {
+        hostname: BACKEND_HOST,
+        path: '/v1/robot/verify',
+        method: 'POST',
+        timeout: timeoutMs,
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          const status = res.statusCode ?? 0;
+          if (status < 200 || status >= 300) {
+            reject(new BingoApiError(status, text.slice(0, 500) || `HTTP ${status}`));
+            return;
+          }
+          try {
+            resolve(JSON.parse(text) as RobotVerifyResponse);
           } catch {
             reject(
               new BingoApiError(status, 'Bingo returned a response that was not valid JSON.'),
