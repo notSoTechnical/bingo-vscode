@@ -62,7 +62,7 @@ When an answer is verified, the code opens in a new editor in the right language
 
 New in 0.4.0: Bingo now crash-tests **robot controller code** the same way it tests answers — before it ships.
 
-If you write robot navigation/control code in Python, open the file and run **Bingo: Verify Robot Controller (Dummy)** from the Command Palette. Your controller is sent to the Dummy gate, which runs it in simulation through six deployment scenarios:
+If you write robot navigation/control code in Python, open the file and run **Bingo: Verify Robot Controller (Dummy)** from the Command Palette. Your controller is sent to the Dummy gate, which runs it in simulation through seven deployment scenarios:
 
 | # | Scenario | What it checks |
 |---|---|---|
@@ -72,37 +72,43 @@ If you write robot navigation/control code in Python, open the file and run **Bi
 | S4 | Emergency stop | When the e-stop fires, the robot must halt fast and stay halted |
 | S5 | Blocked goal | The goal is barricaded — waiting is fine, ramming through is not |
 | S6 | Clear-world sanity | With nothing in the way, the robot must actually reach the goal |
+| S7 | Night run — dark obstacle | The main sensor is blind in the dark — only the short-range bumper sonar sees the dark obstacle on the path; slow down, trust the bumper, no collision |
 
-The verdict is a gate, not a grade: **GREEN — cleared to deploy (6/6)**, or **RED — deploy blocked**, with the failing scenarios named. The full per-scenario report lands in the **Bingo** output channel.
+The verdict is a gate, not a grade: **GREEN — cleared to deploy (7/7)**, or **RED — deploy blocked**, with the failing scenarios named. The full per-scenario report lands in the **Bingo** output channel.
 
 ### The contract
 
-Your file defines one function. Each step, the simulator tells it where the robot is, where the goal is, how close the nearest obstacle is, and whether the e-stop has fired — and your function answers with a velocity:
+Your file defines one function. Each step, the simulator tells it where the robot is, where the goal is, how close the nearest obstacle is on both the main sensor and the short-range bumper sonar, whether it's dark, and whether the e-stop has fired — and your function answers with a velocity:
 
 ```python
 import math
 
-SPEED_LIMIT = 0.5  # m/s — the gate fails any run that exceeds it
-STOP_GAP = 0.45    # metres — stop when an obstacle gets this close
+SPEED_LIMIT = 0.5   # m/s — the gate fails any run that exceeds it
+STOP_GAP = 0.45     # metres — stop when an obstacle gets this close
+NIGHT_SPEED = 0.25  # m/s — crawl speed when the main sensor is blind
 
 def step(obs):
     if obs.estop:
         return (0.0, 0.0)
-    if obs.gap < STOP_GAP:
+    # Trust whichever sensor sees the obstacle — the bumper sonar
+    # still works in the dark, when the main sensor reads inf.
+    effective_gap = min(obs.gap, obs.bumper_gap)
+    if effective_gap < STOP_GAP:
         return (0.0, 0.0)  # wait — never ram
     dx = obs.goal_x - obs.x
     dy = obs.goal_y - obs.y
     d = math.hypot(dx, dy)
     if d <= 0.3:
         return (0.0, 0.0)
-    return (SPEED_LIMIT * dx / d, SPEED_LIMIT * dy / d)
+    speed = NIGHT_SPEED if obs.low_light else SPEED_LIMIT
+    return (speed * dx / d, speed * dy / d)
 ```
 
-`obs` exposes `x`, `y`, `goal_x`, `goal_y`, `gap` (surface distance to the nearest obstacle, in metres), `estop` (bool), and `t` (seconds). If your code crashes, loops forever, or doesn't define `step(obs)`, the gate says so plainly and returns RED with the reason — never a silent pass.
+`obs` exposes `x`, `y`, `goal_x`, `goal_y`, `gap` (main camera/lidar surface distance to the nearest obstacle, in metres — `inf` when there is none, and in the dark this sensor is blind and reads `inf`), `bumper_gap` (the short-range bumper/sonar distance — it works in the dark, but reads `inf` beyond 0.6 m), `low_light` (`True` in dark scenarios), `estop` (bool), and `t` (seconds). If your code crashes, loops forever, or doesn't define `step(obs)`, the gate says so plainly and returns RED with the reason — never a silent pass.
 
 No RapidAPI key is needed for the gate: the endpoint is a **free public beta** for now.
 
-> **Honesty note:** Dummy is a **pre-deployment simulation gate, not a safety certification**. GREEN means the controller passed these six simulated scenarios. It does not guarantee real-world safety and does not replace testing on real hardware.
+> **Honesty note:** Dummy is a **pre-deployment simulation gate, not a safety certification**. GREEN means the controller passed these seven simulated scenarios. It does not guarantee real-world safety and does not replace testing on real hardware.
 
 ## Plans
 
@@ -119,7 +125,7 @@ One request = one problem. Bingo may generate and test up to 3 attempts internal
 
 - **Five languages**: Python, JavaScript, TypeScript, Java, C++
 - **Two engines**: DeepSeek (default) or Google Gemini — your pick per answer; the report names the engine and model used
-- **Dummy robot gate**: crash-tests Python robot controllers (`step(obs)`) in six simulated deployment scenarios — free public beta, no key needed
+- **Dummy robot gate**: crash-tests Python robot controllers (`step(obs)`) in seven simulated deployment scenarios — free public beta, no key needed
 - Errors are explained in plain language: `401/403` means a key problem, `429` means your monthly answers are used up
 - Try the API first in your browser, or with the [example code on GitHub](https://github.com/notSoTechnical/bingo-examples)
 

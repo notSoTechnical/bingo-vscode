@@ -387,7 +387,7 @@ async function verifyRobotController(): Promise<void> {
     return;
   }
 
-  // The gate runs six simulated scenarios server-side, and the free-tier
+  // The gate runs seven simulated scenarios server-side, and the free-tier
   // backend may need to wake up first — hence the long timeout.
   let result;
   try {
@@ -419,7 +419,7 @@ async function verifyRobotController(): Promise<void> {
     );
   }
   output.appendLine(
-    'Dummy is a pre-deployment simulation gate. GREEN means the controller passed these six simulated scenarios — it is not a safety certification, and it does not replace testing on real hardware.',
+    'Dummy is a pre-deployment simulation gate. GREEN means the controller passed these seven simulated scenarios — it is not a safety certification, and it does not replace testing on real hardware.',
   );
   output.show(true);
 

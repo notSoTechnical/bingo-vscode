@@ -164,9 +164,9 @@ export function requestVerifiedAnswer(
  * Run the Dummy robot-safety gate over a robot controller's source code.
  *
  * The code must define `step(obs) -> (vx, vy)`. The backend runs it through
- * six simulated deployment scenarios (obstacle stop, pedestrian crossing,
- * speed limit, e-stop, blocked goal, clear-world sanity) and returns a
- * GREEN/RED gate verdict: GREEN means every scenario passed.
+ * seven simulated deployment scenarios (obstacle stop, pedestrian crossing,
+ * speed limit, e-stop, blocked goal, clear-world sanity, night run) and
+ * returns a GREEN/RED gate verdict: GREEN means every scenario passed.
  *
  * Unlike the answers API, this endpoint is a free public beta for now and
  * is called directly on the Bingo backend — no RapidAPI key is involved.

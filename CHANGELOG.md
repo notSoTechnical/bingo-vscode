@@ -2,10 +2,15 @@
 
 All notable changes to the Bingo — Verified Code Answers extension.
 
+## [0.4.1] — Dummy gate: S7 Night Run
+
+- **Seventh scenario: S7 Night run — dark obstacle** — the Dummy gate (backend v2.4) now also crash-tests controllers in the dark: the main sensor is blind (`obs.gap` reads `inf`), and only the short-range bumper sonar can catch the dark obstacle on the path. The README's `step(obs)` contract now documents `obs.bumper_gap` and `obs.low_light`, and the example controller is the night-aware one — bumper-aware stop, low-light crawl
+- **No functional changes** — the extension renders whatever scenarios the API returns, so the new S7 verdicts (GREEN is now 7/7) appear automatically; this release updates the docs, the example, and user-facing text from six scenarios to seven
+
 ## [0.4.0] — Dummy: a safety gate for robot controllers
 
 - **New command: Bingo: Verify Robot Controller (Dummy)** — open the Python file that defines your robot controller's `step(obs)` function and run it: the whole file is sent to the Dummy gate, which crash-tests the controller in simulation through six deployment scenarios (obstacle stop, pedestrian crossing, speed limit, emergency stop, blocked goal, clear-world sanity)
-- **Gate verdict, honestly reported** — GREEN means all six scenarios passed ("cleared to deploy"), RED means deploy blocked, with the failing scenarios named in the notification and the full per-scenario report (collision, top speed, closest gap, e-stop latency, detail) in the **Bingo** output channel. Code that crashes, never returns, or doesn't define `step(obs)` comes back RED with the reason — never a silent pass
+- **Gate verdict, honestly reported** — GREEN means every scenario passed ("cleared to deploy"), RED means deploy blocked, with the failing scenarios named in the notification and the full per-scenario report (collision, top speed, closest gap, e-stop latency, detail) in the **Bingo** output channel. Code that crashes, never returns, or doesn't define `step(obs)` comes back RED with the reason — never a silent pass
 - **No key needed** — the gate endpoint is a free public beta for now, called directly on the Bingo backend, so this command works without a RapidAPI key. Simulation gate only — not a safety certification, and not a substitute for testing on real hardware
 
 ## [0.3.0] — Pick your engine: DeepSeek or Gemini
